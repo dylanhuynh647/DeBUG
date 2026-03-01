@@ -66,6 +66,18 @@ CREATE POLICY "Allow individual update" ON public.users
     USING (auth.uid() = id)
     WITH CHECK (auth.uid() = id);
 
+-- Allow service role to select
+create policy "Service role can select users"
+  on public.users
+  for select
+  using (true);
+
+-- Allow service role to insert
+create policy "Service role can insert users"
+  on public.users
+  for insert
+  with check (true);
+
 -- Function to get user role
 CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
 RETURNS public.user_role
