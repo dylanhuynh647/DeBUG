@@ -1,10 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import create_client, Client
-from jose import JWTError, jwt
 import os
-from typing import Optional
-from uuid import UUID
 
 security = HTTPBearer()
 
@@ -24,9 +21,38 @@ async def supabase_auth_secure(
 ) -> dict:
     """Verify Supabase JWT and return user info"""
     token = credentials.credentials
-    
+
     import logging
     logger = logging.getLogger(__name__)
+
+    def _resolve_user_role(user_id: str, email: str) -> str:
+        """Best-effort role resolution with safe fallback."""
+        try:
+            user_data = supabase.table("users").select("role").eq("id", user_id).single().execute()
+            if user_data and user_data.data:
+                return user_data.data.get("role", "reporter")
+        except Exception as select_exc:
+            logger.warning(f"Initial role lookup failed for user {user_id}: {select_exc}")
+
+        # If user row doesn't exist yet, attempt to create it once.
+        try:
+            supabase.table("users").upsert({
+                "id": user_id,
+                "email": email,
+                "role": "reporter"
+            }).execute()
+        except Exception as upsert_exc:
+            logger.warning(f"Role bootstrap upsert failed for user {user_id}: {upsert_exc}")
+
+        try:
+            user_data = supabase.table("users").select("role").eq("id", user_id).single().execute()
+            if user_data and user_data.data:
+                return user_data.data.get("role", "reporter")
+        except Exception as retry_exc:
+            logger.warning(f"Role lookup retry failed for user {user_id}: {retry_exc}")
+
+        return "reporter"
+
     try:
         # Verify token with Supabase
         user_response = supabase.auth.get_user(token)
@@ -35,47 +61,19 @@ async def supabase_auth_secure(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials"
             )
-        
+
         user_id = user_response.user.id
-        
-        # Get user role from public.users table
-        logger.warning(f"About to select user from users table: id={user_id}")
-        try:
-            user_data = supabase.table("users").select("role").eq("id", user_id).single().execute()
-            logger.warning(f"user_data returned from select: {user_data}")
-            logger.warning(f"user_data.status_code: {getattr(user_data, 'status_code', None)}")
-        except Exception as select_first_exc:
-            logger.error(f"Initial select failed: {select_first_exc}")
-            user_data = None
+        user_role = _resolve_user_role(str(user_id), user_response.user.email)
 
-        # Always attempt insert and log the result
-        logger.warning(f"Attempting forced insert: id={user_id}, email={user_response.user.email}")
-        try:
-            insert_response = supabase.table("users").insert({
-                "id": str(user_id),
-                "email": user_response.user.email,
-                "role": "reporter"
-            }).execute()
-            logger.warning(f"Forced insert response: {insert_response}")
-        except Exception as insert_exc:
-            logger.error(f"Forced user insert failed: {insert_exc}")
-
-        # Try fetching again after insert
-        try:
-            user_data = supabase.table("users").select("role").eq("id", user_id).single().execute()
-            logger.warning(f"Post-insert select response: {user_data}")
-        except Exception as select_exc:
-            logger.error(f"Post-insert select failed: {select_exc}")
-        user_role = user_data.data.get("role", "reporter") if user_data.data else "reporter"
         return {
             "user_id": user_id,
             "email": user_response.user.email,
             "role": user_role
         }
+    except HTTPException:
+        raise
     except Exception as e:
         # Don't expose internal error details
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"Authentication failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

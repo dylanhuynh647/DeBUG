@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
@@ -25,15 +25,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const profileFetchInFlightRef = useRef(false)
+  const profileFetchPendingRef = useRef(false)
+  const profileFetchTimeoutRef = useRef<number | null>(null)
 
   const fetchProfile = async () => {
+    if (profileFetchInFlightRef.current) {
+      profileFetchPendingRef.current = true
+      return
+    }
+
+    profileFetchInFlightRef.current = true
     try {
       const response = await api.get('/user/me')
       setProfile(response.data)
     } catch (error) {
       console.error('Error fetching profile:', error)
       setProfile(null)
+    } finally {
+      profileFetchInFlightRef.current = false
+      if (profileFetchPendingRef.current) {
+        profileFetchPendingRef.current = false
+        void fetchProfile()
+      }
     }
+  }
+
+  const scheduleProfileFetch = () => {
+    if (profileFetchTimeoutRef.current) {
+      window.clearTimeout(profileFetchTimeoutRef.current)
+    }
+
+    profileFetchTimeoutRef.current = window.setTimeout(() => {
+      profileFetchTimeoutRef.current = null
+      void fetchProfile()
+    }, 150)
   }
 
   const refreshProfile = async () => {
@@ -47,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       if (session?.user) {
-        fetchProfile()
+        scheduleProfileFetch()
       }
       setLoading(false)
     })
@@ -55,17 +81,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
-        await fetchProfile()
+        scheduleProfileFetch()
       } else {
+        if (profileFetchTimeoutRef.current) {
+          window.clearTimeout(profileFetchTimeoutRef.current)
+          profileFetchTimeoutRef.current = null
+        }
         setProfile(null)
       }
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      if (profileFetchTimeoutRef.current) {
+        window.clearTimeout(profileFetchTimeoutRef.current)
+      }
+      subscription.unsubscribe()
+    }
   }, [])
 
   const signOut = async () => {
