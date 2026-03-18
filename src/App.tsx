@@ -13,6 +13,7 @@ import ArtifactNew from './pages/ArtifactNew'
 import Bugs from './pages/Bugs'
 import BugDetail from './pages/BugDetail'
 import BugNew from './pages/BugNew'
+import { isSupabaseConfigured } from './lib/supabase'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,6 +25,23 @@ const queryClient = new QueryClient({
 })
 
 function App() {
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="max-w-xl w-full bg-white rounded-lg shadow p-6 border border-gray-200">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-3">Configuration Required</h1>
+          <p className="text-gray-700 mb-2">
+            The frontend loaded, but Supabase environment variables are missing.
+          </p>
+          <p className="text-sm text-gray-600 mb-4">
+            Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to your environment file
+            (for example, <code>.env</code>) and restart the Vite dev server.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
