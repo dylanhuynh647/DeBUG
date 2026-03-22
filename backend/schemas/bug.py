@@ -157,6 +157,7 @@ class BugResponse(BaseModel):
     fixed_at: Optional[datetime]
     reporter_id: UUID
     reporter_name: Optional[str] = None
+    reporter_avatar_url: Optional[str] = None
     assigned_to: Optional[UUID]
     created_at: datetime
     updated_at: datetime

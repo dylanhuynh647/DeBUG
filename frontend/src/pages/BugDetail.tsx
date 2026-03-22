@@ -82,8 +82,12 @@ export default function BugDetail() {
       users?.find((user: any) => user.id === bug.assigned_to)?.email ||
       bug.assigned_to
     : 'Unassigned'
+  const assignedUserAvatar = bug?.assigned_to
+    ? users?.find((user: any) => user.id === bug.assigned_to)?.avatar_url || null
+    : null
 
   const reporterName = bug?.reporter_name || bug?.reporter_id || 'Unknown'
+  const reporterAvatar = bug?.reporter_avatar_url || null
 
   const {
     register,
@@ -240,11 +244,33 @@ export default function BugDetail() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Reported By</p>
-              <p className="mt-1 text-sm text-gray-900">{reporterName}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <div className="h-7 w-7 overflow-hidden rounded-full border border-gray-200 bg-gray-100">
+                  {reporterAvatar ? (
+                    <img src={reporterAvatar} alt={reporterName} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-gray-500">
+                      {reporterName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <p className="text-sm text-gray-900">{reporterName}</p>
+              </div>
             </div>
             <div>
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Assigned To</p>
-              <p className="mt-1 text-sm text-gray-900">{assignedUserName}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <div className="h-7 w-7 overflow-hidden rounded-full border border-gray-200 bg-gray-100">
+                  {assignedUserAvatar ? (
+                    <img src={assignedUserAvatar} alt={assignedUserName} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-gray-500">
+                      {assignedUserName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <p className="text-sm text-gray-900">{assignedUserName}</p>
+              </div>
             </div>
           </div>
         </div>
