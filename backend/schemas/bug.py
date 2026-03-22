@@ -7,6 +7,7 @@ from backend.utils.security import sanitize_text, validate_enum_value, MAX_TITLE
 # Allowed enum values
 BUG_TYPES = ['logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other']
 BUG_STATUSES = ['open', 'in_progress', 'resolved']
+BUG_SEVERITIES = ['low', 'medium', 'high', 'critical']
 LEGACY_STATUS_ALIASES = {
     'fixed': 'resolved',
     'closed': 'resolved',
@@ -23,6 +24,7 @@ class BugCreate(BaseModel):
     description: str = Field(..., min_length=1, max_length=MAX_DESCRIPTION_LENGTH)
     bug_type: str = Field(..., min_length=1)
     status: Optional[str] = Field(default="open")
+    severity: Optional[str] = Field(default="medium")
     assigned_to: Optional[UUID] = None
     artifact_ids: Optional[List[UUID]] = Field(default_factory=list, max_length=100)
     
@@ -56,6 +58,14 @@ class BugCreate(BaseModel):
             return "open"
         normalized = normalize_status_value(v)
         return validate_enum_value(normalized, BUG_STATUSES, "status")
+
+    @field_validator('severity')
+    @classmethod
+    def validate_severity(cls, v: Optional[str]) -> str:
+        """Validate severity enum"""
+        if v is None:
+            return "medium"
+        return validate_enum_value(v, BUG_SEVERITIES, "severity")
     
     @field_validator('artifact_ids')
     @classmethod
@@ -72,6 +82,7 @@ class BugUpdate(BaseModel):
     description: Optional[str] = Field(None, min_length=1, max_length=MAX_DESCRIPTION_LENGTH)
     bug_type: Optional[str] = Field(None, min_length=1)
     status: Optional[str] = None
+    severity: Optional[str] = None
     assigned_to: Optional[UUID] = None
     artifact_ids: Optional[List[UUID]] = Field(None, max_length=100)
     
@@ -111,6 +122,14 @@ class BugUpdate(BaseModel):
             return None
         normalized = normalize_status_value(v)
         return validate_enum_value(normalized, BUG_STATUSES, "status")
+
+    @field_validator('severity')
+    @classmethod
+    def validate_severity(cls, v: Optional[str]) -> Optional[str]:
+        """Validate severity enum"""
+        if v is None:
+            return None
+        return validate_enum_value(v, BUG_SEVERITIES, "severity")
     
     @field_validator('artifact_ids')
     @classmethod
@@ -133,6 +152,7 @@ class BugResponse(BaseModel):
     description: str
     bug_type: str
     status: str
+    severity: str
     found_at: datetime
     fixed_at: Optional[datetime]
     reporter_id: UUID
@@ -140,7 +160,18 @@ class BugResponse(BaseModel):
     assigned_to: Optional[UUID]
     created_at: datetime
     updated_at: datetime
+    artifact_count: int = 0
     artifacts: Optional[List[dict]] = []
 
     class Config:
         from_attributes = True
+
+
+class BugSeverityUpdate(BaseModel):
+    severity: str
+
+    @field_validator('severity')
+    @classmethod
+    def validate_severity(cls, v: str) -> str:
+        """Validate severity enum"""
+        return validate_enum_value(v, BUG_SEVERITIES, "severity")

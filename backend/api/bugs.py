@@ -3,7 +3,7 @@ from uuid import UUID
 from typing import Optional, List
 from datetime import datetime
 from backend.dependencies import get_current_user, role_required, supabase
-from backend.schemas.bug import BugCreate, BugUpdate, BugResponse
+from backend.schemas.bug import BugCreate, BugUpdate, BugResponse, BugSeverityUpdate
 from backend.crud import bug
 from backend.utils.audit_log import log_bug_created, log_bug_updated, log_bug_status_changed, log_bug_fixed, get_client_ip
 import logging
@@ -132,6 +132,8 @@ async def update_bug(
             changes["title"] = bug_data.title
         if bug_data.description is not None:
             changes["description"] = bug_data.description
+        if bug_data.severity is not None:
+            changes["severity"] = bug_data.severity
         if bug_data.status is not None and bug_data.status != old_status:
             log_bug_status_changed(bug_id, user["user_id"], old_status, bug_data.status, get_client_ip(request))
             if bug_data.status == "resolved":
@@ -153,6 +155,55 @@ async def update_bug(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update bug"
+        )
+
+
+@router.patch("/bugs/{bug_id}/severity", response_model=BugResponse)
+async def update_bug_severity(
+    request: Request,
+    bug_id: UUID,
+    payload: BugSeverityUpdate,
+    user: dict = Depends(role_required(["reporter", "developer", "admin"]))
+):
+    """Update bug severity (all roles)"""
+    try:
+        current_bug = bug.get_bug(supabase, bug_id)
+        if not current_bug:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Bug not found"
+            )
+
+        updated = bug.update_bug(supabase, bug_id, BugUpdate(severity=payload.severity))
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Bug not found"
+            )
+
+        if current_bug.get("severity") != payload.severity:
+            log_bug_updated(
+                bug_id,
+                user["user_id"],
+                {"severity": payload.severity},
+                get_client_ip(request)
+            )
+
+        full_bug = bug.get_bug(supabase, bug_id)
+        return BugResponse(**full_bug)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"Validation error updating bug severity: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid input data"
+        )
+    except Exception as e:
+        logger.error(f"Error updating bug severity: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update bug severity"
         )
 
 @router.delete("/bugs/{bug_id}", status_code=status.HTTP_204_NO_CONTENT)
