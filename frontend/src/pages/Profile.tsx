@@ -14,7 +14,7 @@ const profileSchema = z.object({
 type ProfileFormData = z.infer<typeof profileSchema>
 
 export default function Profile() {
-  const { profile, refreshProfile, setDarkModePreference } = useAuth()
+  const { user, profile, loading: authLoading, refreshProfile, setDarkModePreference } = useAuth()
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(true)
   const [themeUpdating, setThemeUpdating] = useState(false)
@@ -29,40 +29,46 @@ export default function Profile() {
   })
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        let response: any = null
-        let lastError: any = null
+    let cancelled = false
 
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          try {
-            response = await api.get('/user/me')
-            break
-          } catch (error: any) {
-            lastError = error
-            if (attempt < 2) {
-              await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)))
-            }
-          }
+    const loadProfile = async () => {
+      if (authLoading) {
+        return
+      }
+
+      if (!user) {
+        if (!cancelled) {
+          setFetching(false)
         }
+        return
+      }
 
-        if (!response) {
-          throw lastError
-        }
+      if (!profile) {
+        await refreshProfile()
+      }
 
-        reset({
-          full_name: response.data.full_name || '',
-          avatar_url: response.data.avatar_url || '',
-        })
-      } catch (error: any) {
-        toast.error('Failed to load profile')
-      } finally {
+      if (!cancelled) {
         setFetching(false)
       }
     }
 
-    fetchProfile()
-  }, [reset])
+    void loadProfile()
+
+    return () => {
+      cancelled = true
+    }
+  }, [authLoading, user, profile, refreshProfile])
+
+  useEffect(() => {
+    if (!profile) {
+      return
+    }
+
+    reset({
+      full_name: profile.full_name || '',
+      avatar_url: profile.avatar_url || '',
+    })
+  }, [profile, reset])
 
   const onSubmit = async (data: ProfileFormData) => {
     setLoading(true)
