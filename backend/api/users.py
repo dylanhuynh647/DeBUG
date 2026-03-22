@@ -8,6 +8,7 @@ router = APIRouter()
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
+    dark_mode: Optional[bool] = None
 
 class UserResponse(BaseModel):
     id: str
@@ -15,23 +16,40 @@ class UserResponse(BaseModel):
     role: str
     full_name: Optional[str]
     avatar_url: Optional[str]
+    dark_mode: Optional[bool] = False
     created_at: Optional[str]
     updated_at: Optional[str]
+
+
+def _get_or_create_user_row(user_id: str, email: str):
+    """Return user row; create a minimal row when missing."""
+    result = supabase.table("users").select("*").eq("id", user_id).single().execute()
+    if result.data:
+        return result.data
+
+    supabase.table("users").upsert({
+        "id": user_id,
+        "email": email,
+        "role": "reporter",
+    }).execute()
+
+    retry = supabase.table("users").select("*").eq("id", user_id).single().execute()
+    return retry.data
 
 @router.get("/user/me", response_model=UserResponse)
 async def get_current_user_profile(user: dict = Depends(get_current_user)):
     """Get current user's profile"""
     user_id = user["user_id"]
     
-    result = supabase.table("users").select("*").eq("id", user_id).single().execute()
-    
-    if not result.data:
+    profile_row = _get_or_create_user_row(user_id, user["email"])
+
+    if not profile_row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User profile not found"
         )
-    
-    return UserResponse(**result.data)
+
+    return UserResponse(**profile_row)
 
 @router.patch("/user/me", response_model=UserResponse)
 async def update_current_user_profile(
@@ -46,9 +64,16 @@ async def update_current_user_profile(
         update_data["full_name"] = user_update.full_name
     if user_update.avatar_url is not None:
         update_data["avatar_url"] = user_update.avatar_url
+    if user_update.dark_mode is not None:
+        update_data["dark_mode"] = user_update.dark_mode
     
-    update_data["updated_at"] = "now()"
-    
+    profile_row = _get_or_create_user_row(user_id, user["email"])
+    if not profile_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found"
+        )
+
     result = supabase.table("users").update(update_data).eq("id", user_id).execute()
     
     if not result.data:

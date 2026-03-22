@@ -43,6 +43,7 @@ def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID):
         "description": bug_data.description,
         "bug_type": bug_data.bug_type,
         "status": status_value,
+        "severity": bug_data.severity or "medium",
         "reporter_id": str(reporter_id),
         "assigned_to": str(bug_data.assigned_to) if bug_data.assigned_to else None
     }
@@ -91,6 +92,7 @@ def get_bug(db: Client, bug_id: UUID):
     # Get associated artifacts
     artifacts_result = db.table("bug_artifacts").select("artifact_id, artifacts(*)").eq("bug_id", str(bug_id)).execute()
     bug["artifacts"] = [item["artifacts"] for item in artifacts_result.data if item.get("artifacts")]
+    bug["artifact_count"] = len(artifacts_result.data or [])
     
     return bug
 
@@ -141,10 +143,23 @@ def get_bugs(
     
     result = query.order("created_at", desc=True).range(skip, skip + limit - 1).execute()
     bugs = result.data or []
+
+    bug_ids = [str(item.get("id")) for item in bugs if item.get("id")]
+    artifact_count_map = {}
+    if bug_ids:
+        bug_artifacts_result = db.table("bug_artifacts").select("bug_id,artifact_id").in_("bug_id", bug_ids).execute()
+        for relation in bug_artifacts_result.data or []:
+            relation_bug_id = str(relation.get("bug_id")) if relation.get("bug_id") else None
+            if relation_bug_id:
+                artifact_count_map[relation_bug_id] = artifact_count_map.get(relation_bug_id, 0) + 1
+
     user_display_map = _get_user_display_map(db, [item.get("reporter_id") for item in bugs])
     for item in bugs:
         item["status"] = _normalize_status_for_response(item.get("status"))
         item["reporter_name"] = user_display_map.get(item.get("reporter_id"))
+        item_id = str(item.get("id")) if item.get("id") else ""
+        item["artifact_count"] = artifact_count_map.get(item_id, 0)
+        item["artifacts"] = []
     return bugs
 
 def update_bug(db: Client, bug_id: UUID, bug_data: BugUpdate):
@@ -157,6 +172,8 @@ def update_bug(db: Client, bug_id: UUID, bug_data: BugUpdate):
         update_data["description"] = bug_data.description
     if bug_data.bug_type is not None:
         update_data["bug_type"] = bug_data.bug_type
+    if bug_data.severity is not None:
+        update_data["severity"] = bug_data.severity
     if bug_data.assigned_to is not None:
         update_data["assigned_to"] = str(bug_data.assigned_to) if bug_data.assigned_to else None
     

@@ -12,6 +12,7 @@ const bugSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   bug_type: z.string().min(1, 'Bug type is required'),
   status: z.string().default('open'),
+  severity: z.string().default('medium'),
   assigned_to: z.string().uuid().optional().or(z.literal('')),
   artifact_ids: z.array(z.string().uuid()).optional(),
 })
@@ -20,6 +21,7 @@ type BugFormData = z.infer<typeof bugSchema>
 
 const bugTypes = ['logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other']
 const bugStatuses = ['open', 'in_progress', 'resolved']
+const bugSeverities = ['low', 'medium', 'high', 'critical']
 
 const formatBugTypeLabel = (value: string) => {
   if (value.toLowerCase() === 'ui/ux') return 'UI/UX'
@@ -31,6 +33,9 @@ const formatStatusLabel = (value: string) =>
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+
+const formatSeverityLabel = (value: string) =>
+  value.charAt(0).toUpperCase() + value.slice(1)
 
 export default function BugNew() {
   const navigate = useNavigate()
@@ -45,6 +50,7 @@ export default function BugNew() {
     resolver: zodResolver(bugSchema),
     defaultValues: {
       status: 'open',
+      severity: 'medium',
       artifact_ids: [],
     },
   })
@@ -155,6 +161,22 @@ export default function BugNew() {
               {bugStatuses.map((status) => (
                 <option key={status} value={status}>
                   {formatStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="severity" className="block text-sm font-medium text-gray-700">
+              Severity
+            </label>
+            <select
+              {...register('severity')}
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+            >
+              {bugSeverities.map((severity) => (
+                <option key={severity} value={severity}>
+                  {formatSeverityLabel(severity)}
                 </option>
               ))}
             </select>

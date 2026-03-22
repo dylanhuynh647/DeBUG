@@ -14,36 +14,36 @@ export const Navbar = () => {
   return (
     <nav className="bg-white shadow-sm border-b border-gray-200 fixed top-0 left-0 right-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
+        <div className="flex justify-between h-16 gap-4 overflow-x-auto">
           <div className="flex items-center">
             <Link to="/" className="flex items-center" aria-label="DeBUG home">
               <img src={logoIcon} alt="DeBUG logo" className="h-16 w-16" />
-              <span className="ml-2 text-3xl leading-none font-bold text-[#3D6BBA]" style={{ fontFamily: 'Lalezar' }}>DeBUG</span>
+              <span className="ml-2 text-3xl leading-none font-bold text-[#3D6BBA]">DeBUG</span>
             </Link>
             {user && (
-              <div className="ml-10 flex space-x-4">
+              <div className="ml-6 flex items-center gap-2 overflow-x-auto whitespace-nowrap pr-2">
                 <Link
                   to="/dashboard"
-                  className="text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
+                  className="max-w-28 truncate text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
                 >
                   Dashboard
                 </Link>
                 <Link
                   to="/artifacts"
-                  className="text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
+                  className="max-w-28 truncate text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
                 >
                   Artifacts
                 </Link>
                 <Link
                   to="/bugs"
-                  className="text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
+                  className="max-w-20 truncate text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
                 >
                   Bugs
                 </Link>
                 {profile?.role === 'admin' && (
                   <Link
                     to="/admin"
-                    className="text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
+                    className="max-w-32 truncate text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
                   >
                     Admin Panel
                   </Link>
@@ -51,18 +51,18 @@ export const Navbar = () => {
               </div>
             )}
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-2 whitespace-nowrap">
             {user ? (
               <>
                 <Link
                   to="/profile"
-                  className="text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
+                  className="max-w-24 truncate text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
                 >
                   Profile
                 </Link>
                 <button
                   onClick={handleSignOut}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap"
                 >
                   Logout
                 </button>
@@ -71,13 +71,13 @@ export const Navbar = () => {
               <>
                 <Link
                   to="/auth"
-                  className="text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
+                  className="max-w-20 truncate text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
                 >
                   Login
                 </Link>
                 <Link
                   to="/auth?mode=signup"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap"
                 >
                   Sign Up
                 </Link>

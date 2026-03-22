@@ -14,9 +14,10 @@ const profileSchema = z.object({
 type ProfileFormData = z.infer<typeof profileSchema>
 
 export default function Profile() {
-  const { profile, refreshProfile } = useAuth()
+  const { profile, refreshProfile, setDarkModePreference } = useAuth()
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(true)
+  const [themeUpdating, setThemeUpdating] = useState(false)
 
   const {
     register,
@@ -30,7 +31,25 @@ export default function Profile() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const response = await api.get('/user/me')
+        let response: any = null
+        let lastError: any = null
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            response = await api.get('/user/me')
+            break
+          } catch (error: any) {
+            lastError = error
+            if (attempt < 2) {
+              await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)))
+            }
+          }
+        }
+
+        if (!response) {
+          throw lastError
+        }
+
         reset({
           full_name: response.data.full_name || '',
           avatar_url: response.data.avatar_url || '',
@@ -136,6 +155,29 @@ export default function Profile() {
                 />
               </div>
             )}
+          </div>
+
+          <div className="pt-4 border-t border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900 mb-3">Appearance</h3>
+            <label className="flex items-center justify-between rounded-md border border-gray-300 p-3">
+              <span className="text-sm text-gray-700">Enable Dark Mode</span>
+              <input
+                type="checkbox"
+                checked={!!profile?.dark_mode}
+                disabled={themeUpdating}
+                onChange={async (e) => {
+                  const enabled = e.target.checked
+                  setThemeUpdating(true)
+                  try {
+                    await setDarkModePreference(enabled)
+                    toast.success(enabled ? 'Dark mode enabled' : 'Dark mode disabled')
+                  } finally {
+                    setThemeUpdating(false)
+                  }
+                }}
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+            </label>
           </div>
 
           <div className="pt-4 border-t border-gray-200">

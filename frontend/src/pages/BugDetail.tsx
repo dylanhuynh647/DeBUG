@@ -13,6 +13,7 @@ const bugSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   bug_type: z.string().min(1, 'Bug type is required'),
   status: z.string().min(1, 'Status is required'),
+  severity: z.string().min(1, 'Severity is required'),
   assigned_to: z.string().uuid().optional().or(z.literal('')),
   artifact_ids: z.array(z.string().uuid()).optional(),
 })
@@ -21,6 +22,7 @@ type BugFormData = z.infer<typeof bugSchema>
 
 const bugTypes = ['logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other']
 const bugStatuses = ['open', 'in_progress', 'resolved']
+const bugSeverities = ['low', 'medium', 'high', 'critical']
 
 const formatBugTypeLabel = (value: string) => {
   if (value.toLowerCase() === 'ui/ux') return 'UI/UX'
@@ -32,6 +34,9 @@ const formatStatusLabel = (value: string) =>
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+
+const formatSeverityLabel = (value: string) =>
+  value.charAt(0).toUpperCase() + value.slice(1)
 
 export default function BugDetail() {
   const { id } = useParams<{ id: string }>()
@@ -61,6 +66,7 @@ export default function BugDetail() {
 
   const canEdit = profile?.role && ['developer', 'admin'].includes(profile.role)
   const canDelete = profile?.role === 'admin'
+  const canUpdateSeverity = !!profile?.role
 
   const { data: users } = useQuery({
     queryKey: ['users', 'developers'],
@@ -93,6 +99,7 @@ export default function BugDetail() {
           description: bug.description,
           bug_type: bug.bug_type,
           status: bug.status,
+          severity: bug.severity,
           assigned_to: bug.assigned_to || '',
           artifact_ids: bug.artifacts?.map((a: any) => a.id) || [],
         }
@@ -131,6 +138,20 @@ export default function BugDetail() {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Failed to update bug status')
+    },
+  })
+
+  const updateSeverityMutation = useMutation({
+    mutationFn: async (severityValue: string) => {
+      return api.patch(`/bugs/${id}/severity`, { severity: severityValue })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bug', id] })
+      queryClient.invalidateQueries({ queryKey: ['bugs'] })
+      toast.success('Bug severity updated!')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to update bug severity')
     },
   })
 
@@ -207,7 +228,7 @@ export default function BugDetail() {
               </button>
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md text-sm font-medium"
+                className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Cancel
               </button>
@@ -283,6 +304,20 @@ export default function BugDetail() {
             </div>
 
             <div>
+              <label className="block text-sm font-medium text-gray-700">Severity</label>
+              <select
+                {...register('severity')}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              >
+                {bugSeverities.map((severity) => (
+                  <option key={severity} value={severity}>
+                    {formatSeverityLabel(severity)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
               <label className="block text-sm font-medium text-gray-700">Assigned To</label>
               <select
                 {...register('assigned_to')}
@@ -322,7 +357,7 @@ export default function BugDetail() {
                   setIsEditing(false)
                   reset()
                 }}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md text-sm font-medium"
+                className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Cancel
               </button>
@@ -343,7 +378,7 @@ export default function BugDetail() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Description</label>
-              <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{bug.description}</p>
+              <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{bug.description}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Bug Type</label>
@@ -366,6 +401,25 @@ export default function BugDetail() {
                 </select>
               ) : (
                 <p className="mt-1 text-sm text-gray-900">{formatStatusLabel(bug.status)}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Severity</label>
+              {canUpdateSeverity ? (
+                <select
+                  value={bug.severity}
+                  onChange={(e) => updateSeverityMutation.mutate(e.target.value)}
+                  disabled={updateSeverityMutation.isPending}
+                  className="mt-1 block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:opacity-50"
+                >
+                  {bugSeverities.map((severity) => (
+                    <option key={severity} value={severity}>
+                      {formatSeverityLabel(severity)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-1 text-sm text-gray-900">{formatSeverityLabel(bug.severity)}</p>
               )}
             </div>
             <div>
