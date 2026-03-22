@@ -22,17 +22,20 @@ def _write_bug_status(db: Client, bug_id: UUID, status_value: str):
         raise
 
 
-def _get_user_display_map(db: Client, user_ids: List[str]) -> dict:
-    """Return a map of user_id -> display name (full name or email)."""
+def _get_user_profile_map(db: Client, user_ids: List[str]) -> dict:
+    """Return a map of user_id -> profile fields used by bug views."""
     unique_ids = list({uid for uid in user_ids if uid})
     if not unique_ids:
         return {}
 
-    users_result = db.table("users").select("id, full_name, email").in_("id", unique_ids).execute()
-    display_map = {}
+    users_result = db.table("users").select("id, full_name, email, avatar_url").in_("id", unique_ids).execute()
+    profile_map = {}
     for user in users_result.data or []:
-        display_map[user["id"]] = user.get("full_name") or user.get("email")
-    return display_map
+        profile_map[user["id"]] = {
+            "display_name": user.get("full_name") or user.get("email"),
+            "avatar_url": user.get("avatar_url"),
+        }
+    return profile_map
 
 def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID):
     """Create a new bug and its artifact relationships"""
@@ -86,8 +89,10 @@ def get_bug(db: Client, bug_id: UUID):
     bug = bug_result.data
     bug["status"] = _normalize_status_for_response(bug.get("status"))
 
-    user_display_map = _get_user_display_map(db, [bug.get("reporter_id")])
-    bug["reporter_name"] = user_display_map.get(bug.get("reporter_id"))
+    user_profile_map = _get_user_profile_map(db, [bug.get("reporter_id")])
+    reporter_profile = user_profile_map.get(bug.get("reporter_id"), {})
+    bug["reporter_name"] = reporter_profile.get("display_name")
+    bug["reporter_avatar_url"] = reporter_profile.get("avatar_url")
     
     # Get associated artifacts
     artifacts_result = db.table("bug_artifacts").select("artifact_id, artifacts(*)").eq("bug_id", str(bug_id)).execute()
@@ -156,10 +161,12 @@ def get_bugs(
                 artifact_count_map[relation_bug_id] = artifact_count_map.get(relation_bug_id, 0) + 1
                 artifact_ids_map.setdefault(relation_bug_id, []).append(relation.get("artifact_id"))
 
-    user_display_map = _get_user_display_map(db, [item.get("reporter_id") for item in bugs])
+    user_profile_map = _get_user_profile_map(db, [item.get("reporter_id") for item in bugs])
     for item in bugs:
         item["status"] = _normalize_status_for_response(item.get("status"))
-        item["reporter_name"] = user_display_map.get(item.get("reporter_id"))
+        reporter_profile = user_profile_map.get(item.get("reporter_id"), {})
+        item["reporter_name"] = reporter_profile.get("display_name")
+        item["reporter_avatar_url"] = reporter_profile.get("avatar_url")
         item_id = str(item.get("id")) if item.get("id") else ""
         item["artifact_count"] = artifact_count_map.get(item_id, 0)
         item["artifact_ids"] = artifact_ids_map.get(item_id, [])

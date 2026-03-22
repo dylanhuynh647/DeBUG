@@ -5,6 +5,7 @@ import logoIcon from '../assets/NavBar/logo-icon.svg'
 export const Navbar = () => {
   const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
+  const profileInitial = (profile?.full_name || profile?.email || 'U').charAt(0).toUpperCase()
 
   const handleSignOut = async () => {
     await signOut()
@@ -56,9 +57,14 @@ export const Navbar = () => {
               <>
                 <Link
                   to="/profile"
-                  className="max-w-24 truncate text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
+                  aria-label="Profile"
+                  className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-gray-300 bg-gray-100"
                 >
-                  Profile
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-sm font-semibold text-gray-700">{profileInitial}</span>
+                  )}
                 </Link>
                 <button
                   onClick={handleSignOut}

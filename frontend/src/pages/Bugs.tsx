@@ -16,6 +16,7 @@ interface Bug {
   fixed_at: string | null
   reporter_id: string
   reporter_name?: string | null
+  reporter_avatar_url?: string | null
   assigned_to: string | null
   created_at: string
   updated_at: string
@@ -34,6 +35,7 @@ interface AssignableUser {
   id: string
   full_name?: string | null
   email?: string | null
+  avatar_url?: string | null
 }
 
 const statusColors: Record<string, string> = {
@@ -212,8 +214,29 @@ export default function Bugs() {
     return assignee?.full_name || assignee?.email || assignedTo
   }
 
+  const getAssignedAvatar = (assignedTo: string | null) => {
+    if (!assignedTo) {
+      return null
+    }
+
+    const assignee = assignees?.find((user) => user.id === assignedTo)
+    return assignee?.avatar_url || null
+  }
+
   const getReporterLabel = (bug: Bug) => {
     return bug.reporter_name || bug.reporter_id
+  }
+
+  const getReporterAvatar = (bug: Bug) => {
+    if (bug.reporter_avatar_url) {
+      return bug.reporter_avatar_url
+    }
+
+    if (profile?.id && bug.reporter_id === profile.id) {
+      return profile.avatar_url || null
+    }
+
+    return null
   }
 
   const artifactsById = useMemo(() => {
@@ -676,8 +699,19 @@ export default function Bugs() {
               <tr key={bug.id} className="hover:bg-gray-50">
                 <td className="px-4 py-4">
                   <div className="max-w-[8rem] truncate text-sm font-medium text-gray-900" title={bug.title}>{bug.title}</div>
-                  <div className="mt-1 max-w-[7rem] truncate text-xs text-gray-500" title={getReporterLabel(bug)}>
-                    Reported by: {getReporterLabel(bug)}
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="h-5 w-5 overflow-hidden rounded-full border border-gray-200 bg-gray-100">
+                      {getReporterAvatar(bug) ? (
+                        <img src={getReporterAvatar(bug) || ''} alt={getReporterLabel(bug)} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-gray-500">
+                          {getReporterLabel(bug).charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <span className="max-w-[6rem] truncate text-xs text-gray-500" title={getReporterLabel(bug)}>
+                      {getReporterLabel(bug)}
+                    </span>
                   </div>
                 </td>
                 <td className="w-28 px-4 py-4 whitespace-nowrap">
@@ -696,9 +730,20 @@ export default function Bugs() {
                   </span>
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <span className="inline-block max-w-[7rem] truncate" title={getAssignedLabel(bug.assigned_to)}>
-                    {getAssignedLabel(bug.assigned_to)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-5 overflow-hidden rounded-full border border-gray-200 bg-gray-100">
+                      {getAssignedAvatar(bug.assigned_to) ? (
+                        <img src={getAssignedAvatar(bug.assigned_to) || ''} alt={getAssignedLabel(bug.assigned_to)} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-gray-500">
+                          {getAssignedLabel(bug.assigned_to).charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <span className="inline-block max-w-[6rem] truncate" title={getAssignedLabel(bug.assigned_to)}>
+                      {getAssignedLabel(bug.assigned_to)}
+                    </span>
+                  </div>
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                   {new Date(bug.found_at).toLocaleDateString()}
