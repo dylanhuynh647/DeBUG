@@ -20,7 +20,7 @@ interface Bug {
   created_at: string
   updated_at: string
   artifact_count?: number
-  artifacts?: Artifact[]
+  artifact_ids?: string[]
 }
 
 interface Artifact {
@@ -131,34 +131,16 @@ export default function Bugs() {
       }
 
       const response = await api.get('/bugs', { params })
-      const bugsList = (response.data || []) as Bug[]
+      return (response.data || []) as Bug[]
+    },
+    enabled: !loading,
+  })
 
-      // Load per-bug details so local artifact filtering has complete relationships.
-      return Promise.all(
-        bugsList.map(async (bug) => {
-          try {
-            const detailResponse = await api.get(`/bugs/${bug.id}`)
-            const detailBug = detailResponse.data
-            return {
-              ...bug,
-              reporter_name: detailBug?.reporter_name ?? bug.reporter_name,
-              artifact_count:
-                typeof detailBug?.artifact_count === 'number'
-                  ? detailBug.artifact_count
-                  : Array.isArray(detailBug?.artifacts)
-                    ? detailBug.artifacts.length
-                    : bug.artifact_count ?? bug.artifacts?.length ?? 0,
-              artifacts: Array.isArray(detailBug?.artifacts) ? detailBug.artifacts : bug.artifacts ?? [],
-            }
-          } catch {
-            return {
-              ...bug,
-              artifact_count: bug.artifact_count ?? bug.artifacts?.length ?? 0,
-              artifacts: bug.artifacts ?? [],
-            }
-          }
-        })
-      )
+  const { data: artifacts } = useQuery<Artifact[]>({
+    queryKey: ['artifacts'],
+    queryFn: async () => {
+      const response = await api.get('/artifacts', { params: { skip: 0, limit: 500 } })
+      return response.data
     },
     enabled: !loading,
   })
@@ -184,6 +166,14 @@ export default function Bugs() {
   const getReporterLabel = (bug: Bug) => {
     return bug.reporter_name || bug.reporter_id
   }
+
+  const artifactsById = useMemo(() => {
+    const map = new Map<string, Artifact>()
+    ;(artifacts || []).forEach((artifact) => {
+      map.set(artifact.id, artifact)
+    })
+    return map
+  }, [artifacts])
 
   // Realtime subscription
   useEffect(() => {
@@ -258,7 +248,10 @@ export default function Bugs() {
 
     if (!isIgnored('query') && filters.query.trim()) {
       const searchValue = filters.query.trim().toLowerCase()
-      const artifactNames = (bug.artifacts || []).map((artifact) => artifact.name.toLowerCase())
+      const artifactNames = (bug.artifact_ids || [])
+        .map((artifactId) => artifactsById.get(artifactId)?.name)
+        .filter(Boolean)
+        .map((name) => name!.toLowerCase())
       const searchableFields = [
         bug.title,
         bug.description,
@@ -299,7 +292,7 @@ export default function Bugs() {
     }
 
     if (!isIgnored('artifact_ids') && filters.artifact_ids.length > 0) {
-      const bugArtifactIds = (bug.artifacts || []).map((artifact) => artifact.id)
+      const bugArtifactIds = bug.artifact_ids || []
       const hasSelectedArtifact = filters.artifact_ids.some((artifactId) => bugArtifactIds.includes(artifactId))
       if (!hasSelectedArtifact) {
         return false
@@ -319,7 +312,7 @@ export default function Bugs() {
 
   const filteredBugs = useMemo(
     () => (bugs || []).filter((bug) => matchesFilters(bug)),
-    [bugs, filters]
+    [bugs, filters, artifactsById]
   )
 
   const totalPages = Math.max(1, Math.ceil(filteredBugs.length / pageSize))
@@ -385,13 +378,13 @@ export default function Bugs() {
     () =>
       uniqueByValue(
         getFacetBugs('artifact_ids').flatMap((bug) =>
-          (bug.artifacts || []).map((artifact) => ({
-            value: artifact.id,
-            label: artifact.name,
+          (bug.artifact_ids || []).map((artifactId) => ({
+            value: artifactId,
+            label: artifactsById.get(artifactId)?.name || artifactId,
           }))
         )
       ).sort((a, b) => a.label.localeCompare(b.label)),
-    [bugs, filters]
+    [bugs, filters, artifactsById]
   )
 
   const toggleMultiFilter = (key: 'status' | 'bug_type' | 'severity' | 'reporter_ids' | 'artifact_ids', value: string) => {
@@ -657,7 +650,7 @@ export default function Bugs() {
                   {bug.fixed_at ? new Date(bug.fixed_at).toLocaleDateString() : '-'}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {bug.artifact_count ?? bug.artifacts?.length ?? 0}
+                  {bug.artifact_count ?? bug.artifact_ids?.length ?? 0}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
                   <button

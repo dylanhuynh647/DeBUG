@@ -92,6 +92,7 @@ def get_bug(db: Client, bug_id: UUID):
     # Get associated artifacts
     artifacts_result = db.table("bug_artifacts").select("artifact_id, artifacts(*)").eq("bug_id", str(bug_id)).execute()
     bug["artifacts"] = [item["artifacts"] for item in artifacts_result.data if item.get("artifacts")]
+    bug["artifact_ids"] = [item["artifact_id"] for item in artifacts_result.data if item.get("artifact_id")]
     bug["artifact_count"] = len(artifacts_result.data or [])
     
     return bug
@@ -146,12 +147,14 @@ def get_bugs(
 
     bug_ids = [str(item.get("id")) for item in bugs if item.get("id")]
     artifact_count_map = {}
+    artifact_ids_map = {}
     if bug_ids:
         bug_artifacts_result = db.table("bug_artifacts").select("bug_id,artifact_id").in_("bug_id", bug_ids).execute()
         for relation in bug_artifacts_result.data or []:
             relation_bug_id = str(relation.get("bug_id")) if relation.get("bug_id") else None
             if relation_bug_id:
                 artifact_count_map[relation_bug_id] = artifact_count_map.get(relation_bug_id, 0) + 1
+                artifact_ids_map.setdefault(relation_bug_id, []).append(relation.get("artifact_id"))
 
     user_display_map = _get_user_display_map(db, [item.get("reporter_id") for item in bugs])
     for item in bugs:
@@ -159,6 +162,7 @@ def get_bugs(
         item["reporter_name"] = user_display_map.get(item.get("reporter_id"))
         item_id = str(item.get("id")) if item.get("id") else ""
         item["artifact_count"] = artifact_count_map.get(item_id, 0)
+        item["artifact_ids"] = artifact_ids_map.get(item_id, [])
         item["artifacts"] = []
     return bugs
 

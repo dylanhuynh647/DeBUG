@@ -41,7 +41,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     profileFetchInFlightRef.current = true
     try {
-      const response = await api.get('/user/me')
+      let response: any = null
+      let lastError: any = null
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          response = await api.get('/user/me')
+          break
+        } catch (error: any) {
+          lastError = error
+          if (attempt < 2) {
+            await new Promise((resolve) => window.setTimeout(resolve, 200 * (attempt + 1)))
+          }
+        }
+      }
+
+      if (!response) {
+        throw lastError
+      }
+
       const fetchedProfile = response.data as UserProfile
       const storedTheme = window.localStorage.getItem(getThemeStorageKey(fetchedProfile.id))
       const hasStoredTheme = storedTheme === 'true' || storedTheme === 'false'
@@ -57,7 +75,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
     } catch (error) {
       console.error('Error fetching profile:', error)
-      setProfile(null)
+      // Preserve any existing profile on transient failures to avoid UI flicker.
+      setProfile((current) => current)
     } finally {
       profileFetchInFlightRef.current = false
       if (profileFetchPendingRef.current) {

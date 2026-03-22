@@ -161,6 +161,7 @@ class BugResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     artifact_count: int = 0
+    artifact_ids: Optional[List[UUID]] = []
     artifacts: Optional[List[dict]] = []
 
     class Config:

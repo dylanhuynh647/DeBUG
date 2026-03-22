@@ -23,18 +23,31 @@ class UserResponse(BaseModel):
 
 def _get_or_create_user_row(user_id: str, email: str):
     """Return user row; create a minimal row when missing."""
-    result = supabase.table("users").select("*").eq("id", user_id).single().execute()
-    if result.data:
-        return result.data
+    user_id = str(user_id)
 
-    supabase.table("users").upsert({
-        "id": user_id,
-        "email": email,
-        "role": "reporter",
-    }).execute()
+    try:
+        result = supabase.table("users").select("*").eq("id", user_id).single().execute()
+        if result.data:
+            return result.data
+    except Exception:
+        # Missing row or transient read error; continue with bootstrap path.
+        pass
 
-    retry = supabase.table("users").select("*").eq("id", user_id).single().execute()
-    return retry.data
+    try:
+        supabase.table("users").upsert({
+            "id": user_id,
+            "email": email,
+            "role": "reporter",
+        }).execute()
+    except Exception:
+        # If another request created the row concurrently, read retry below will pick it up.
+        pass
+
+    try:
+        retry = supabase.table("users").select("*").eq("id", user_id).single().execute()
+        return retry.data
+    except Exception:
+        return None
 
 @router.get("/user/me", response_model=UserResponse)
 async def get_current_user_profile(user: dict = Depends(get_current_user)):
@@ -73,6 +86,9 @@ async def update_current_user_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User profile not found"
         )
+
+    if not update_data:
+        return UserResponse(**profile_row)
 
     result = supabase.table("users").update(update_data).eq("id", user_id).execute()
     
