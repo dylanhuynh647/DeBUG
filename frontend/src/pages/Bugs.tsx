@@ -110,7 +110,7 @@ const uniqueByValue = (options: FilterOption[]) => {
 }
 
 export default function Bugs() {
-  const { user, profile, loading } = useAuth()
+  const { user, loading, currentProject, currentProjectId } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
@@ -134,11 +134,16 @@ export default function Bugs() {
   const pageSize = 10
 
   const { data: bugs, isLoading, error } = useQuery<Bug[]>({
-    queryKey: ['bugs'],
+    queryKey: ['bugs', currentProjectId],
     queryFn: async () => {
+      if (!currentProjectId) {
+        return []
+      }
+
       const params = {
         skip: 0,
         limit: 100,
+        project_id: currentProjectId,
       }
 
       const response = await api.get('/bugs', { params })
@@ -162,7 +167,9 @@ export default function Bugs() {
       const enriched = await Promise.all(
         bugsList.map(async (bug) => {
           try {
-            const detailResponse = await api.get(`/bugs/${bug.id}`)
+            const detailResponse = await api.get(`/bugs/${bug.id}`, {
+              params: { project_id: currentProjectId },
+            })
             const detailBug = detailResponse.data
             const detailArtifactIds: string[] = Array.isArray(detailBug?.artifact_ids)
               ? detailBug.artifact_ids
@@ -197,34 +204,34 @@ export default function Bugs() {
 
       return enriched
     },
-    enabled: !loading,
+    enabled: !loading && !!currentProjectId,
   })
 
   const { data: artifacts } = useQuery<Artifact[]>({
-    queryKey: ['artifacts'],
+    queryKey: ['artifacts', currentProjectId],
     queryFn: async () => {
       const response = await api.get('/artifacts', { params: { skip: 0, limit: 100 } })
       return Array.isArray(response.data) ? response.data : []
     },
-    enabled: !loading,
+    enabled: !loading && !!currentProjectId,
   })
 
   const { data: assignees } = useQuery<AssignableUser[]>({
-    queryKey: ['users', 'developers'],
+    queryKey: ['users', 'developers', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/users/developers')
+      const response = await api.get('/users/developers', { params: { project_id: currentProjectId } })
       return response.data
     },
-    enabled: !loading,
+    enabled: !loading && !!currentProjectId,
   })
 
   const { data: userProfiles } = useQuery<UserProfileLite[]>({
-    queryKey: ['users', 'profiles', user?.id],
+    queryKey: ['users', 'profiles', user?.id, currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/users/profiles')
+      const response = await api.get('/users/profiles', { params: { project_id: currentProjectId } })
       return Array.isArray(response.data) ? response.data : []
     },
-    enabled: !loading && !!user?.id,
+    enabled: !loading && !!user?.id && !!currentProjectId,
   })
 
   const getAssignedLabel = (assignedTo: string | null) => {
@@ -266,7 +273,6 @@ export default function Bugs() {
       bug.reporter_avatar_url?.trim() || null,
       reporter?.avatar_url?.trim() || null,
       assigneeMatch?.avatar_url?.trim() || null,
-      user?.id && bug.reporter_id === user.id ? profile?.avatar_url?.trim() || null : null,
     ].filter((value): value is string => !!value)
 
     const firstUsable = candidateUrls.find((url) => !failedReporterAvatarUrls.has(url))
@@ -562,7 +568,15 @@ export default function Bugs() {
     </div>
   )
 
-  const canCreate = profile?.role && ['reporter', 'developer', 'admin'].includes(profile.role)
+  const canCreate = currentProject?.my_role && ['owner', 'admin', 'developer', 'reporter'].includes(currentProject.my_role)
+
+  if (!loading && !currentProjectId) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white shadow rounded-lg p-6 text-gray-700">Select a project from the dashboard to view bugs.</div>
+      </div>
+    )
+  }
 
   if (loading || isLoading) {
     return (

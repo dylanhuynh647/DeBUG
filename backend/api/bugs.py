@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from uuid import UUID
 from typing import Optional, List
 from datetime import datetime
-from backend.dependencies import get_current_user, role_required, supabase
+from backend.dependencies import get_current_user, ensure_project_role, get_project_role, supabase
 from backend.schemas.bug import BugCreate, BugUpdate, BugResponse, BugSeverityUpdate
 from backend.crud import bug
 from backend.utils.audit_log import log_bug_created, log_bug_updated, log_bug_status_changed, log_bug_fixed, get_client_ip
@@ -15,18 +15,31 @@ router = APIRouter()
 async def create_bug(
     request: Request,
     bug_data: BugCreate,
-    user: dict = Depends(role_required(["reporter", "developer", "admin"]))
+    user: dict = Depends(get_current_user)
 ):
     """Create a new bug"""
     try:
+        ensure_project_role(
+            supabase,
+            bug_data.project_id,
+            user["user_id"],
+            ["owner", "admin", "developer", "reporter"],
+        )
+        if bug_data.assigned_to and not get_project_role(supabase, bug_data.project_id, bug_data.assigned_to):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assigned user is not a member of this project"
+            )
         created = bug.create_bug(supabase, bug_data, UUID(user["user_id"]))
         # Fetch with artifacts
-        full_bug = bug.get_bug(supabase, UUID(created["id"]))
+        full_bug = bug.get_bug(supabase, UUID(created["id"]), bug_data.project_id)
         
         # Audit logging
         log_bug_created(UUID(created["id"]), user["user_id"], get_client_ip(request))
         
         return BugResponse(**full_bug)
+    except HTTPException:
+        raise
     except ValueError as e:
         # Validation errors - don't expose internal details
         logger.warning(f"Validation error creating bug: {str(e)}")
@@ -43,9 +56,10 @@ async def create_bug(
 
 @router.get("/bugs", response_model=List[BugResponse])
 async def list_bugs(
+    project_id: UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    status: Optional[List[str]] = Query(None),
+    bug_status: Optional[List[str]] = Query(None, alias="status"),
     bug_type: Optional[List[str]] = Query(None),
     reporter_id: Optional[UUID] = Query(None),
     assigned_to: Optional[UUID] = Query(None),
@@ -56,11 +70,18 @@ async def list_bugs(
 ):
     """List all bugs with filtering"""
     try:
+        ensure_project_role(
+            supabase,
+            project_id,
+            user["user_id"],
+            ["owner", "admin", "developer", "reporter"],
+        )
         bugs_list = bug.get_bugs(
             supabase,
+            project_id=project_id,
             skip=skip,
             limit=limit,
-            status=status,
+            status=bug_status,
             bug_type=bug_type,
             reporter_id=reporter_id,
             assigned_to=assigned_to,
@@ -69,20 +90,29 @@ async def list_bugs(
             found_at_to=found_at_to
         )
         return [BugResponse(**b) for b in bugs_list]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to list bugs"
         )
 
 @router.get("/bugs/{bug_id}", response_model=BugResponse)
 async def get_bug(
     bug_id: UUID,
+    project_id: UUID,
     user: dict = Depends(get_current_user)
 ):
     """Get a single bug by ID"""
     try:
-        bug_data = bug.get_bug(supabase, bug_id)
+        ensure_project_role(
+            supabase,
+            project_id,
+            user["user_id"],
+            ["owner", "admin", "developer", "reporter"],
+        )
+        bug_data = bug.get_bug(supabase, bug_id, project_id)
         if not bug_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -101,13 +131,25 @@ async def get_bug(
 async def update_bug(
     request: Request,
     bug_id: UUID,
+    project_id: UUID,
     bug_data: BugUpdate,
-    user: dict = Depends(role_required(["developer", "admin"]))
+    user: dict = Depends(get_current_user)
 ):
     """Update a bug (developer or admin only)"""
     try:
+        ensure_project_role(
+            supabase,
+            project_id,
+            user["user_id"],
+            ["owner", "admin", "developer"],
+        )
+        if bug_data.assigned_to and not get_project_role(supabase, project_id, bug_data.assigned_to):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assigned user is not a member of this project"
+            )
         # Get current bug to track status changes
-        current_bug = bug.get_bug(supabase, bug_id)
+        current_bug = bug.get_bug(supabase, bug_id, project_id)
         if not current_bug:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -124,7 +166,7 @@ async def update_bug(
             )
         
         # Fetch with artifacts
-        full_bug = bug.get_bug(supabase, bug_id)
+        full_bug = bug.get_bug(supabase, bug_id, project_id)
         
         # Audit logging
         changes = {}
@@ -162,12 +204,19 @@ async def update_bug(
 async def update_bug_severity(
     request: Request,
     bug_id: UUID,
+    project_id: UUID,
     payload: BugSeverityUpdate,
-    user: dict = Depends(role_required(["reporter", "developer", "admin"]))
+    user: dict = Depends(get_current_user)
 ):
     """Update bug severity (all roles)"""
     try:
-        current_bug = bug.get_bug(supabase, bug_id)
+        ensure_project_role(
+            supabase,
+            project_id,
+            user["user_id"],
+            ["owner", "admin", "developer", "reporter"],
+        )
+        current_bug = bug.get_bug(supabase, bug_id, project_id)
         if not current_bug:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -189,7 +238,7 @@ async def update_bug_severity(
                 get_client_ip(request)
             )
 
-        full_bug = bug.get_bug(supabase, bug_id)
+        full_bug = bug.get_bug(supabase, bug_id, project_id)
         return BugResponse(**full_bug)
     except HTTPException:
         raise
@@ -209,10 +258,23 @@ async def update_bug_severity(
 @router.delete("/bugs/{bug_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_bug(
     bug_id: UUID,
-    user: dict = Depends(role_required(["admin"]))
+    project_id: UUID,
+    user: dict = Depends(get_current_user)
 ):
     """Delete a bug (admin only)"""
     try:
+        ensure_project_role(
+            supabase,
+            project_id,
+            user["user_id"],
+            ["owner", "admin"],
+        )
+        bug_row = bug.get_bug(supabase, bug_id, project_id)
+        if not bug_row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Bug not found"
+            )
         bug.delete_bug(supabase, bug_id)
         return None
     except Exception as e:

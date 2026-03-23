@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import logoIcon from '../assets/NavBar/logo-icon.svg'
 
 export const Navbar = () => {
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, projects, currentProjectId, setCurrentProjectId, signOut } = useAuth()
   const navigate = useNavigate()
   const profileInitial = (profile?.full_name || profile?.email || 'U').charAt(0).toUpperCase()
 
@@ -48,6 +48,20 @@ export const Navbar = () => {
                   >
                     Admin Panel
                   </Link>
+                )}
+                {projects.length > 0 && (
+                  <select
+                    value={currentProjectId || ''}
+                    onChange={(event) => setCurrentProjectId(event.target.value || null)}
+                    className="ml-1 border border-gray-300 rounded-md text-sm px-2 py-1 bg-white text-gray-700"
+                    aria-label="Select current project"
+                  >
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </div>
             )}
