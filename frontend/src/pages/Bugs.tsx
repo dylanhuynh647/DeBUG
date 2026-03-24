@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
@@ -43,6 +43,14 @@ interface UserProfileLite {
   full_name?: string | null
   email?: string | null
   avatar_url?: string | null
+}
+
+interface AssignmentInvitation {
+  id: string
+  bug_id: string
+  invited_by: string
+  status: 'pending' | 'accepted' | 'declined'
+  created_at: string
 }
 
 const statusColors: Record<string, string> = {
@@ -210,7 +218,7 @@ export default function Bugs() {
   const { data: artifacts } = useQuery<Artifact[]>({
     queryKey: ['artifacts', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/artifacts', { params: { skip: 0, limit: 100 } })
+      const response = await api.get('/artifacts', { params: { skip: 0, limit: 100, project_id: currentProjectId } })
       return Array.isArray(response.data) ? response.data : []
     },
     enabled: !loading && !!currentProjectId,
@@ -232,6 +240,25 @@ export default function Bugs() {
       return Array.isArray(response.data) ? response.data : []
     },
     enabled: !loading && !!user?.id && !!currentProjectId,
+  })
+
+  const { data: invitations } = useQuery<AssignmentInvitation[]>({
+    queryKey: ['bug-assignment-invitations', currentProjectId],
+    queryFn: async () => {
+      const response = await api.get('/bugs/assignment-invitations', { params: { project_id: currentProjectId } })
+      return Array.isArray(response.data) ? response.data : []
+    },
+    enabled: !loading && !!currentProjectId,
+  })
+
+  const respondInvitationMutation = useMutation({
+    mutationFn: async ({ invitationId, action }: { invitationId: string; action: 'accept' | 'decline' }) => {
+      return api.patch(`/bugs/assignment-invitations/${invitationId}`, null, { params: { action } })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bug-assignment-invitations', currentProjectId] })
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
+    },
   })
 
   const getAssignedLabel = (assignedTo: string | null) => {
@@ -607,6 +634,35 @@ export default function Bugs() {
           </button>
         )}
       </div>
+
+      {(invitations || []).length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+          <h2 className="text-sm font-semibold text-amber-900 mb-2">Pending Assignment Invitations</h2>
+          <div className="space-y-2">
+            {(invitations || []).map((invitation) => (
+              <div key={invitation.id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-amber-900">Bug {invitation.bug_id.slice(0, 8)}... invited at {new Date(invitation.created_at).toLocaleString()}</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => respondInvitationMutation.mutate({ invitationId: invitation.id, action: 'accept' })}
+                    className="px-3 py-1 rounded bg-green-600 text-white"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => respondInvitationMutation.mutate({ invitationId: invitation.id, action: 'decline' })}
+                    className="px-3 py-1 rounded bg-gray-700 text-white"
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white shadow rounded-lg p-4 mb-6">

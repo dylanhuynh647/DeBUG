@@ -23,10 +23,26 @@ class ProjectResponse(BaseModel):
     id: UUID
     name: str
     description: Optional[str]
+    cover_image_url: Optional[str] = None
     owner_id: UUID
     my_role: str
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    description: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Project name cannot be empty")
+        return trimmed
 
 
 class ProjectMemberAdd(BaseModel):

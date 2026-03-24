@@ -39,7 +39,7 @@ const formatSeverityLabel = (value: string) =>
 
 export default function BugNew() {
   const navigate = useNavigate()
-  const { currentProjectId } = useAuth()
+  const { currentProject, currentProjectId } = useAuth()
 
   const {
     register,
@@ -58,7 +58,7 @@ export default function BugNew() {
   const { data: artifacts } = useQuery({
     queryKey: ['artifacts', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/artifacts')
+      const response = await api.get('/artifacts', { params: { project_id: currentProjectId } })
       return response.data
     },
     enabled: !!currentProjectId,
@@ -81,8 +81,12 @@ export default function BugNew() {
         artifact_ids: data.artifact_ids?.map(id => id) || [],
       })
     },
-    onSuccess: (response) => {
-      toast.success('Bug created successfully!')
+    onSuccess: (response, variables) => {
+      if (variables.assigned_to) {
+        toast.success('Bug created and assignment invite sent!')
+      } else {
+        toast.success('Bug created successfully!')
+      }
       navigate(`/bugs/${response.data.id}`)
     },
     onError: (error: any) => {
@@ -95,6 +99,10 @@ export default function BugNew() {
   const onSubmit = (data: BugFormData) => {
     if (!currentProjectId) {
       toast.error('Select a project first')
+      return
+    }
+    if (currentProject?.my_role === 'reporter' && !data.assigned_to) {
+      toast.error('Reporter bugs must include an assignee')
       return
     }
     createMutation.mutate(data)

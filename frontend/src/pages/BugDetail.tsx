@@ -48,7 +48,7 @@ const formatSeverityLabel = (value: string) =>
 export default function BugDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { currentProject, currentProjectId } = useAuth()
+  const { user, currentProject, currentProjectId } = useAuth()
   const queryClient = useQueryClient()
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -66,13 +66,19 @@ export default function BugDetail() {
   const { data: artifacts } = useQuery({
     queryKey: ['artifacts', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/artifacts')
+      const response = await api.get('/artifacts', { params: { project_id: currentProjectId } })
       return response.data
     },
+    enabled: !!currentProjectId,
   })
 
 
-  const canEdit = currentProject?.my_role && ['owner', 'admin', 'developer'].includes(currentProject.my_role)
+  const canEdit =
+    !!currentProject?.my_role &&
+    (
+      ['owner', 'admin', 'developer'].includes(currentProject.my_role) ||
+      (currentProject.my_role === 'reporter' && bug?.reporter_id === user?.id)
+    )
   const canDelete = currentProject?.my_role && ['owner', 'admin'].includes(currentProject.my_role)
   const canUpdateSeverity = !!currentProject?.my_role
 
@@ -162,11 +168,15 @@ export default function BugDetail() {
         params: { project_id: currentProjectId },
       })
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['bug', id, currentProjectId] })
       queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
       setIsEditing(false)
-      toast.success('Bug updated successfully!')
+      if (variables.assigned_to) {
+        toast.success('Bug updated and assignment invite sent!')
+      } else {
+        toast.success('Bug updated successfully!')
+      }
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Failed to update bug')

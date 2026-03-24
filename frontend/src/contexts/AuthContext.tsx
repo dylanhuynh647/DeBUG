@@ -16,6 +16,7 @@ interface ProjectMembership {
   id: string
   name: string
   description: string | null
+  cover_image_url?: string | null
   owner_id: string
   my_role: 'owner' | 'admin' | 'developer' | 'reporter'
   created_at: string

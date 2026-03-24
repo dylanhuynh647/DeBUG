@@ -11,6 +11,90 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+def _enrich_invitation_rows(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return []
+
+    bug_ids = list({row.get("bug_id") for row in rows if row.get("bug_id")})
+    project_ids = list({row.get("project_id") for row in rows if row.get("project_id")})
+    inviter_ids = list({row.get("invited_by") for row in rows if row.get("invited_by")})
+
+    bug_map: dict[str, str] = {}
+    project_map: dict[str, str] = {}
+    inviter_map: dict[str, dict] = {}
+
+    if bug_ids:
+        bug_result = (
+            supabase.table("bugs")
+            .select("id, title")
+            .in_("id", bug_ids)
+            .execute()
+        )
+        for row in bug_result.data or []:
+            bug_map[str(row["id"])] = row.get("title") or "Bug"
+
+    if project_ids:
+        project_result = (
+            supabase.table("projects")
+            .select("id, name")
+            .in_("id", project_ids)
+            .execute()
+        )
+        for row in project_result.data or []:
+            project_map[str(row["id"])] = row.get("name") or "Project"
+
+    if inviter_ids:
+        inviter_result = (
+            supabase.table("users")
+            .select("id, email, full_name")
+            .in_("id", inviter_ids)
+            .execute()
+        )
+        for row in inviter_result.data or []:
+            inviter_map[str(row["id"])] = row
+
+    enriched: list[dict] = []
+    for row in rows:
+        inviter = inviter_map.get(str(row.get("invited_by")), {})
+        enriched.append(
+            {
+                **row,
+                "bug_title": bug_map.get(str(row.get("bug_id"))) or "Bug",
+                "project_name": project_map.get(str(row.get("project_id"))) or "Project",
+                "inviter_name": inviter.get("full_name"),
+                "inviter_email": inviter.get("email"),
+            }
+        )
+    return enriched
+
+
+def _create_assignment_invitation(
+    bug_id: UUID,
+    project_id: UUID,
+    invited_user_id: UUID,
+    invited_by: UUID | str,
+):
+    # Ensure only one pending invitation per bug.
+    supabase.table("bug_assignment_invitations").update({"status": "declined"}).eq(
+        "bug_id", str(bug_id)
+    ).eq("status", "pending").execute()
+
+    result = (
+        supabase.table("bug_assignment_invitations")
+        .insert(
+            {
+                "bug_id": str(bug_id),
+                "project_id": str(project_id),
+                "invited_user_id": str(invited_user_id),
+                "invited_by": str(invited_by),
+                "status": "pending",
+            }
+        )
+        .execute()
+    )
+    return (result.data or [None])[0]
+
 @router.post("/bugs", response_model=BugResponse, status_code=status.HTTP_201_CREATED)
 async def create_bug(
     request: Request,
@@ -19,18 +103,41 @@ async def create_bug(
 ):
     """Create a new bug"""
     try:
-        ensure_project_role(
+        requester_role = ensure_project_role(
             supabase,
             bug_data.project_id,
             user["user_id"],
             ["owner", "admin", "developer", "reporter"],
         )
+        if requester_role == "reporter" and not bug_data.assigned_to:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Reporter-created bugs must include an assignee invitation",
+            )
         if bug_data.assigned_to and not get_project_role(supabase, bug_data.project_id, bug_data.assigned_to):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Assigned user is not a member of this project"
             )
-        created = bug.create_bug(supabase, bug_data, UUID(user["user_id"]))
+        if bug_data.assigned_to:
+            assignee_role = get_project_role(supabase, bug_data.project_id, bug_data.assigned_to)
+            if assignee_role not in ["owner", "admin", "developer"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Bug assignee must be an owner, admin, or developer",
+                )
+
+        assigned_target = bug_data.assigned_to
+        create_payload = bug_data.model_copy(update={"assigned_to": None}) if assigned_target else bug_data
+        created = bug.create_bug(supabase, create_payload, UUID(user["user_id"]))
+
+        if assigned_target:
+            _create_assignment_invitation(
+                UUID(created["id"]),
+                bug_data.project_id,
+                assigned_target,
+                user["user_id"],
+            )
         # Fetch with artifacts
         full_bug = bug.get_bug(supabase, UUID(created["id"]), bug_data.project_id)
         
@@ -135,13 +242,13 @@ async def update_bug(
     bug_data: BugUpdate,
     user: dict = Depends(get_current_user)
 ):
-    """Update a bug (developer or admin only)"""
+    """Update a bug with project role checks."""
     try:
-        ensure_project_role(
+        requester_role = ensure_project_role(
             supabase,
             project_id,
             user["user_id"],
-            ["owner", "admin", "developer"],
+            ["owner", "admin", "developer", "reporter"],
         )
         if bug_data.assigned_to and not get_project_role(supabase, project_id, bug_data.assigned_to):
             raise HTTPException(
@@ -155,14 +262,37 @@ async def update_bug(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Bug not found"
             )
+        if requester_role == "reporter" and str(current_bug.get("reporter_id")) != str(user["user_id"]):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Reporters can only edit their own bug reports",
+            )
+        if bug_data.assigned_to:
+            assignee_role = get_project_role(supabase, project_id, bug_data.assigned_to)
+            if assignee_role not in ["owner", "admin", "developer"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Bug assignee must be an owner, admin, or developer",
+                )
         
         old_status = current_bug.get("status")
         
-        updated = bug.update_bug(supabase, bug_id, bug_data)
+        incoming_assignee = bug_data.assigned_to
+        update_payload = bug_data.model_copy(update={"assigned_to": None}) if incoming_assignee else bug_data
+
+        updated = bug.update_bug(supabase, bug_id, update_payload)
         if not updated:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Bug not found"
+            )
+
+        if incoming_assignee:
+            _create_assignment_invitation(
+                bug_id,
+                project_id,
+                incoming_assignee,
+                user["user_id"],
             )
         
         # Fetch with artifacts
@@ -277,8 +407,118 @@ async def delete_bug(
             )
         bug.delete_bug(supabase, bug_id)
         return None
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+@router.get("/bugs/assignment-invitations")
+async def list_assignment_invitations(
+    project_id: UUID,
+    user: dict = Depends(get_current_user),
+):
+    ensure_project_role(
+        supabase,
+        project_id,
+        user["user_id"],
+        ["owner", "admin", "developer", "reporter"],
+    )
+
+    result = (
+        supabase.table("bug_assignment_invitations")
+        .select("*")
+        .eq("project_id", str(project_id))
+        .eq("invited_user_id", str(user["user_id"]))
+        .eq("status", "pending")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return _enrich_invitation_rows(result.data or [])
+
+
+@router.get("/bugs/assignment-invitations/inbox")
+async def list_assignment_invitations_inbox(
+    status_filter: str = Query("pending", pattern="^(pending|accepted|declined|all)$"),
+    user: dict = Depends(get_current_user),
+):
+    query = (
+        supabase.table("bug_assignment_invitations")
+        .select("*")
+        .eq("invited_user_id", str(user["user_id"]))
+        .order("created_at", desc=True)
+    )
+    if status_filter != "all":
+        query = query.eq("status", status_filter)
+
+    result = query.execute()
+    return _enrich_invitation_rows(result.data or [])
+
+
+@router.get("/bugs/assignment-invitations/pending-count")
+async def assignment_invitations_pending_count(
+    user: dict = Depends(get_current_user),
+):
+    result = (
+        supabase.table("bug_assignment_invitations")
+        .select("id", count="exact")
+        .eq("invited_user_id", str(user["user_id"]))
+        .eq("status", "pending")
+        .execute()
+    )
+    return {"count": result.count or 0}
+
+
+@router.patch("/bugs/assignment-invitations/{invitation_id}")
+async def respond_to_assignment_invitation(
+    invitation_id: UUID,
+    action: str = Query(..., pattern="^(accept|decline)$"),
+    user: dict = Depends(get_current_user),
+):
+    invitation_result = (
+        supabase.table("bug_assignment_invitations")
+        .select("*")
+        .eq("id", str(invitation_id))
+        .single()
+        .execute()
+    )
+    invitation = invitation_result.data
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    if str(invitation.get("invited_user_id")) != str(user["user_id"]):
+        raise HTTPException(status_code=403, detail="You can only respond to your own invitation")
+    if invitation.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Invitation has already been handled")
+
+    ensure_project_role(
+        supabase,
+        UUID(invitation["project_id"]),
+        user["user_id"],
+        ["owner", "admin", "developer", "reporter"],
+    )
+
+    next_status = "accepted" if action == "accept" else "declined"
+    updated_invite = (
+        supabase.table("bug_assignment_invitations")
+        .update(
+            {
+                "status": next_status,
+                "responded_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        )
+        .eq("id", str(invitation_id))
+        .execute()
+    )
+
+    if action == "accept":
+        bug.update_bug(
+            supabase,
+            UUID(invitation["bug_id"]),
+            BugUpdate(assigned_to=UUID(user["user_id"])),
+        )
+
+    return (updated_invite.data or [invitation])[0]
