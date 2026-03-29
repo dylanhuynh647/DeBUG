@@ -1,4 +1,4 @@
-# Bug Tracking System
+# DeBUG
 
 Bug tracking platform with a React frontend and FastAPI backend, backed by Supabase/PostgreSQL. The project includes project-scoped permissions, invitation workflows, artifact linkage, and phase-aware bug management.
 
