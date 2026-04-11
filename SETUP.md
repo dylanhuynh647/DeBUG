@@ -1,42 +1,93 @@
 # Setup Guide
 
-## Quick Start
+## Prerequisites
 
-### 1. Install Dependencies
+- Node.js 20+ (includes npm)
+- Python 3.10 (recommended for current backend dependency compatibility)
+- A Supabase project
+
+## Quick Start (Recommended)
+
+Run these commands from repository root.
+
+### 1) Frontend dependencies
 
 ```bash
-# Frontend
+cd frontend
 npm install
-
-# Backend
-cd backend
-pip install -r requirements.txt
 ```
 
-### 2. Supabase Setup
+### 2) Backend virtual environment + dependencies
 
-1. Create a Supabase project at https://supabase.com
-2. Go to SQL Editor and run [database/migrations/ALL_MIGRATIONS.sql](database/migrations/ALL_MIGRATIONS.sql)
-   - This is intended for clean bootstrap environments.
-   - For environments already using incremental migrations, continue applying ordered migration files.
-3. Enable Realtime:
-   - Go to Database > Replication
-   - Enable replication for the bugs and bug_artifacts tables
-4. Enable Email Auth:
-   - Go to Authentication > Providers
-   - Enable Email provider
+From repository root:
 
-### 3. Environment Variables
+```bash
+cd backend
+```
+
+Create the venv with Python 3.10 (choose your OS):
+
+Linux/macOS:
+
+```bash
+python3.10 -m venv .venv
+```
+
+Windows:
+
+```bash
+py -3.10 -m venv .venv
+```
+
+Install backend dependencies (choose your OS):
+
+Linux/macOS:
+
+```bash
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+Windows:
+
+```bash
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Activate the venv in your current terminal (so `python` uses `.venv`):
+
+Linux/macOS:
+
+```bash
+source .venv/bin/activate
+```
+
+Windows:
+
+```bash
+.venv\Scripts\Activate.ps1
+```
+
+## Environment Variables
 
 Create local environment files from templates:
 
+Linux/macOS:
+
 ```bash
-# Run from repository root
+cp frontend/.env.example frontend/.env
+cp backend/.env.example backend/.env
+```
+
+Windows:
+
+```bash
 copy frontend\.env.example frontend\.env
 copy backend\.env.example backend\.env
 ```
 
-Edit `frontend/.env`:
+Edit frontend/.env:
 
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
@@ -44,7 +95,7 @@ VITE_SUPABASE_ANON_KEY=your_anon_key
 VITE_API_URL=http://localhost:8000
 ```
 
-Edit `backend/.env`:
+Edit backend/.env:
 
 ```env
 SUPABASE_URL=https://your-project.supabase.co
@@ -56,32 +107,49 @@ TRUSTED_PROXY_IPS=127.0.0.1,::1
 Important:
 - Keep `.env` files local only.
 - Do not commit real keys.
-- Never place service-role credentials in frontend code.
+- Never put service-role credentials in frontend code.
 
-### 4. Run the Application
+## Supabase Setup
+
+1. Create a project at https://supabase.com
+2. In SQL Editor, run [database/migrations/ALL_MIGRATIONS.sql](database/migrations/ALL_MIGRATIONS.sql)
+   - Use this for clean bootstrap environments.
+   - If you already apply incremental migrations, continue ordered migration files instead.
+3. Enable Realtime replication for `bugs` and `bug_artifacts`.
+4. Enable Email auth provider.
+
+## Run the App
+
+Open two terminals.
+
+Terminal 1 (frontend):
 
 ```bash
-# Terminal 1: Frontend
+cd frontend
 npm run dev
-
-# Terminal 2: Backend
-cd backend
-python run.py
-# Or from repository root: uvicorn backend.main:app --reload --port 8000
 ```
 
-### 5. Create Your First Project and Membership
+Terminal 2 (backend):
 
-1. Navigate to http://localhost:5173/auth
-2. Click "Sign Up" and create an account
-3. Create a project from the dashboard
-4. Manage member roles inside the project (owner, admin, developer, reporter)
+Linux/macOS:
 
-Note: Global users.role has been removed in favor of project-scoped memberships.
+```bash
+cd backend
+source .venv/bin/activate
+python run.py
+```
+
+Windows:
+
+```bash
+cd backend
+.venv\Scripts\Activate.ps1
+python run.py
+```
 
 ## Testing
 
-### Frontend
+Frontend:
 
 ```bash
 cd frontend
@@ -90,68 +158,69 @@ npm run test
 npm run build
 ```
 
-### Backend
+Backend:
 
 ```bash
-cd ..
-pytest backend/tests -q
+cd backend
+python -m pytest tests -q
 ```
 
-### CI Validation
-
-The same checks run in GitHub Actions via [.github/workflows/ci.yml](.github/workflows/ci.yml).
+CI uses the same checks in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Troubleshooting
 
-### Backend Import Errors
-If you see import errors, make sure you're running from the `backend/` directory or using the proper Python path.
+### Backend import errors
 
-### Supabase Connection Issues
-- Verify your environment variables are correct
-- Check that RLS policies are set up correctly
-- Verify project membership records exist for your account
-
-### Suspected Key Leak
-
-If you think keys were exposed:
-1. Rotate `SUPABASE_SERVICE_ROLE_KEY` in Supabase immediately.
-2. Rotate other affected keys/tokens.
-3. Update local `.env` files with new values.
-4. Verify tracked files are clean with `git grep`.
-5. If a secret was committed in the past, rewrite history before publishing.
-
-
-### Realtime Not Working
-- Ensure Realtime is enabled for bugs and bug_artifacts
-- Check browser console for connection errors
-- Verify your Supabase project has Realtime enabled
-
-# Docker Setup
-
-## Prerequisites
-
-- [Docker](https://www.docker.com/get-started) and [Docker Compose](https://docs.docker.com/compose/) installed
-
-## Build and Run with Docker Compose
+Make sure commands are using the backend venv interpreter:
 
 ```bash
-# Build all services (frontend, backend, db)
-docker compose build
+python --version
+python -c "import sys; print(sys.executable)"
+```
 
-# Start all services
+### Supabase connection issues
+
+- Verify environment variables.
+- Verify RLS policies.
+- Verify project membership records for your account.
+
+### Realtime not working
+
+- Ensure Realtime replication is enabled for `bugs` and `bug_artifacts`.
+- Check browser console/network errors.
+
+### Suspected key leak
+
+1. Rotate `SUPABASE_SERVICE_ROLE_KEY` immediately.
+2. Rotate other affected tokens.
+3. Update local `.env` values.
+4. Verify tracked files are clean with `git grep`.
+5. If a secret was committed, rewrite history before publishing.
+
+## Docker Setup
+
+Prerequisites:
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- [Docker Compose](https://docs.docker.com/compose/)
+
+Build and run:
+
+```bash
+docker compose up --build
 docker compose up
 ```
 
-- The frontend will be available at [http://localhost:5173](http://localhost:5173)
-- The backend API will be available at [http://localhost:8000](http://localhost:8000)
+- Frontend: http://localhost:5173
+- Backend: http://localhost:8000
 
-## Stopping Services
+Stop services:
 
 ```bash
 docker compose down
 ```
 
-## Rebuilding (if you change dependencies or Dockerfiles)
+Rebuild without cache:
 
 ```bash
 docker compose build --no-cache
